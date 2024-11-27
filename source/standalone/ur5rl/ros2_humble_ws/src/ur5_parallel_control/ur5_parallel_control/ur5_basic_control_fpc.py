@@ -24,7 +24,7 @@ class Ur5JointController(Node):
         self.d_phi = v_cm * (1 / f_update) / 44  # Max angle delta per update
 
         # Read the current joint positions from the joint state topic
-        self.traj_controller_state: JointTrajectoryControllerState = None
+        self.traj_controller_state: JointTrajectoryControllerState = None  # type: ignore
         self.state_subscriber = self.create_subscription(
             JointState,
             "/joint_states",
@@ -93,7 +93,7 @@ class Ur5JointController(Node):
         # If no joint positions received yet, return None
         if self.current_joint_positions is None:
             self.get_logger().warn("No joint positions received yet")
-            return None
+            return None  # type: ignore
         all_joint_positions = self.current_joint_positions + [
             float(self.current_gripper_state)
         ]
@@ -103,7 +103,7 @@ class Ur5JointController(Node):
         """_summary_
         Function to receive the joint delta command from a ros msg.
         """
-        normalized_delta: list[float] = msg.data
+        normalized_delta: list[float] = msg.data  # type: ignore
         self.set_joint_delta(normalized_delta)
         # log the received command
 
@@ -140,7 +140,7 @@ class Ur5JointController(Node):
             return
         # Set the gripper to the target state
         if self.current_gripper_state != self.gripper_target:
-            self.set_gripper(self.gripper_target)
+            self.set_gripper(self.gripper_target)  # type: ignore
             self.current_gripper_state = self.gripper_target
 
         if sum(self.current_angle_delta) != 0:
@@ -190,7 +190,7 @@ class Ur5JointController(Node):
         Function to reset the UR5 robot to its initial joint position.
         """
         self.get_logger().info("Resetting UR5 to initial joint position")
-        self.send_joint_command(self.init_joint_positions, duration=3)
+        self.send_joint_command(self.init_joint_positions, duration=3)  # type: ignore
 
 
 def main(args=None):
