@@ -136,7 +136,7 @@ def main():
             )
 
             if PUBLISH_2_ROS:
-                # Send ros actions to the real robot # TODO implement GRIPPER CONTROL
+                # Send ros actions to the real robot
                 ur5_controller.set_joint_delta(actions[0, :7].numpy())
                 real_joint_positions = ur5_controller.get_joint_positions()
 
