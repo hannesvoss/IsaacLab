@@ -102,6 +102,8 @@ class HawUr5Env(DirectRLEnv):
 
         self.action_dim = len(self._arm_dof_idx) + len(self._gripper_dof_idx)
 
+        self.gripper_action_bin: torch.Tensor
+
     def get_joint_pos(self):
         return self.joint_pos
 
@@ -137,7 +139,7 @@ class HawUr5Env(DirectRLEnv):
         """
         # Convert each gripper action to the corresponding 6 gripper joint positions (min max 36 = joint limit)
         # gripper_action = gripper_action * 0 if gripper_action < 0 else 1
-        gripper_action_bin = torch.where(
+        self.gripper_action_bin = torch.where(
             gripper_action > 0,
             torch.tensor(1.0, device="cuda:0"),
             torch.tensor(-1.0, device="cuda:0"),
@@ -145,12 +147,12 @@ class HawUr5Env(DirectRLEnv):
 
         gripper_joint_targets = torch.stack(
             [
-                35 * gripper_action_bin,  # "left_outer_knuckle_joint"
-                -35 * gripper_action_bin,  # "left_inner_finger_joint"
-                -35 * gripper_action_bin,  # "left_inner_knuckle_joint"
-                -35 * gripper_action_bin,  # "right_inner_knuckle_joint"
-                35 * gripper_action_bin,  # "right_outer_knuckle_joint"
-                35 * gripper_action_bin,  # "right_inner_finger_joint"
+                35 * self.gripper_action_bin,  # "left_outer_knuckle_joint"
+                -35 * self.gripper_action_bin,  # "left_inner_finger_joint"
+                -35 * self.gripper_action_bin,  # "left_inner_knuckle_joint"
+                -35 * self.gripper_action_bin,  # "right_inner_knuckle_joint"
+                35 * self.gripper_action_bin,  # "right_outer_knuckle_joint"
+                35 * self.gripper_action_bin,  # "right_inner_finger_joint"
             ],
             dim=1,
         )  # Shape: (num_envs, 6)
@@ -243,15 +245,6 @@ class HawUr5Env(DirectRLEnv):
 
             default_velocities = self.robot.data.default_joint_vel
 
-            # ! YANK - BAD WORKAROUND
-            # Set joint angles by action
-            # self.joint_pos = T_angles
-            # self.joint_vel = default_velocities
-            # self.actions = T_angles
-            # self._apply_action()
-
-            # ! TODO find out why below code destroys the gripper (THIS IS THE TRUE RESET!)
-            # ? Maybe the gripper joint limits are exceeded by writing the joint state to the sim
             # self.joint_pos = T_angles
             # self.joint_vel = default_velocities
             print(f"Setting joint angles to: {T_arm_angles}")
@@ -261,6 +254,19 @@ class HawUr5Env(DirectRLEnv):
         except Exception as e:
             print(f"Error setting joint angles: {e}")
             return False
+
+    def get_sim_joint_positions(self) -> torch.Tensor | None:
+        """_summary_
+        Get the joint positions from the simulation.
+
+        return: torch.Tensor: Joint positions of the robot in the simulation
+                or None if the joint positions are not available.
+        """
+        arm_joint_pos = self.joint_pos[:, : len(self._arm_dof_idx)].unsqueeze(dim=1)
+        gripper_goalpos = self.gripper_action_bin
+        if gripper_goalpos and arm_joint_pos:
+            return torch.cat((arm_joint_pos, gripper_goalpos), dim=1)
+        return None
 
 
 """
