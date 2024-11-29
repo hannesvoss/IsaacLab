@@ -26,7 +26,7 @@ class HawUr5EnvCfg(DirectRLEnvCfg):
     num_states = 5
     reward_scale_example = 1.0
     decimation = 2
-    action_scale = 0.4
+    action_scale = 0.38
     v_cm = 25  # cm/s
     stepsize = v_cm * (1 / f_update) / 44  # Max angle delta per update
 
@@ -97,15 +97,17 @@ class HawUr5Env(DirectRLEnv):
         self.action_scale = self.cfg.action_scale
 
         # Holds the current joint positions and velocities
-        self.joint_pos = self.robot.data.joint_pos
-        self.joint_vel = self.robot.data.joint_vel
+        self.live_joint_pos: torch.Tensor = self.robot.data.joint_pos
+        self.live_joint_vel: torch.Tensor = self.robot.data.joint_vel
+
+        self.jointpos_script_GT: torch.Tensor = self.live_joint_pos[:, :]
 
         self.action_dim = len(self._arm_dof_idx) + len(self._gripper_dof_idx)
 
-        self.gripper_action_bin: torch.Tensor
+        self.gripper_action_bin: torch.Tensor | None = None
 
     def get_joint_pos(self):
-        return self.joint_pos
+        return self.live_joint_pos
 
     def _setup_scene(self):
         # add Articulation
@@ -165,11 +167,11 @@ class HawUr5Env(DirectRLEnv):
         gripper_action = actions[:, 6]  # Shape: (num_envs)
 
         # Get current joint positions in the correct shape
-        current_main_joint_positions = self.joint_pos[:, : len(self._arm_dof_idx)]
+        current_main_joint_positions = self.live_joint_pos[:, : len(self._arm_dof_idx)]
 
         # Apply actions
         # Scale the main joint actions
-        main_joint_deltas = self.cfg.action_scale * main_joint_deltas.clone()
+        main_joint_deltas = self.cfg.action_scale * main_joint_deltas
         # Convert normalized joint action to radian deltas
         main_joint_deltas = self.cfg.stepsize * main_joint_deltas
 
@@ -194,10 +196,10 @@ class HawUr5Env(DirectRLEnv):
     def _get_observations(self) -> dict:
         obs = torch.cat(
             (
-                self.joint_pos[:, : len(self._arm_dof_idx)].unsqueeze(dim=1),
-                self.joint_vel[:, : len(self._arm_dof_idx)].unsqueeze(dim=1),
-                self.joint_pos[:, : len(self._gripper_dof_idx)].unsqueeze(dim=1),
-                self.joint_vel[:, : len(self._gripper_dof_idx)].unsqueeze(dim=1),
+                self.live_joint_pos[:, : len(self._arm_dof_idx)].unsqueeze(dim=1),
+                self.live_joint_vel[:, : len(self._arm_dof_idx)].unsqueeze(dim=1),
+                self.live_joint_pos[:, : len(self._gripper_dof_idx)].unsqueeze(dim=1),
+                self.live_joint_vel[:, : len(self._gripper_dof_idx)].unsqueeze(dim=1),
             ),
             dim=-1,
         )
@@ -227,8 +229,8 @@ class HawUr5Env(DirectRLEnv):
 
         default_root_state = self.robot.data.default_root_state[env_ids]
 
-        self.joint_pos[env_ids] = joint_pos
-        self.joint_vel[env_ids] = joint_vel
+        self.live_joint_pos[env_ids] = joint_pos
+        self.live_joint_vel[env_ids] = joint_vel
         # self.robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self.robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
@@ -262,10 +264,12 @@ class HawUr5Env(DirectRLEnv):
         return: torch.Tensor: Joint positions of the robot in the simulation
                 or None if the joint positions are not available.
         """
-        arm_joint_pos = self.joint_pos[:, : len(self._arm_dof_idx)].unsqueeze(dim=1)
+        arm_joint_pos = self.live_joint_pos[:, : len(self._arm_dof_idx)]
         gripper_goalpos = self.gripper_action_bin
-        if gripper_goalpos and arm_joint_pos:
-            return torch.cat((arm_joint_pos, gripper_goalpos), dim=1)
+        if gripper_goalpos != None and arm_joint_pos != None:
+            gripper_goalpos = gripper_goalpos.unsqueeze(1)
+            T_all_joint_pos = torch.cat((arm_joint_pos, gripper_goalpos), dim=1)
+            return T_all_joint_pos
         return None
 
 

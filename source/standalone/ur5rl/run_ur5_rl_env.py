@@ -11,7 +11,7 @@ from omni.isaac.lab.app import AppLauncher
 
 # ----------------- ROS -----------------
 import rclpy
-import sys
+
 
 # Get the Ur5JointController class from the ur5_basic_control_fpc module
 from ros2_humble_ws.src.ur5_parallel_control.ur5_parallel_control.ur5_basic_control_fpc import (
@@ -36,26 +36,65 @@ def ros_node_thread(node: Ur5JointController):
 
 # ---------------------------------------
 
+# ----------- Data Analysis -------------
+from influx_datalogger import InfluxDataLogger
+
+
+def store_joint_positions(
+    logger: InfluxDataLogger, sim: list, real: list | None, bucket: str
+):
+    joints = [
+        "shoulder_pan_joint",  # 0
+        "shoulder_lift_joint",  # -110
+        "elbow_joint",  # 110
+        "wrist_1_joint",  # -180
+        "wrist_2_joint",  # -90
+        "wrist_3_joint",  # 0
+        "gripper_goalstate",  # 0
+    ]
+    logger.log_joint_positions(
+        joint_names=joints, sim_positions=sim, real_positions=real, bucket=bucket
+    )
+
+
+# ---------------------------------------
+
+
 # add argparse arguments
 parser = argparse.ArgumentParser(
     description="Tutorial on running the cartpole RL environment."
-)
-parser.add_argument(
-    "--num_envs", type=int, default=1, help="Number of environments to spawn."
 )
 
 parser.add_argument(
     "--pub2ros",
     type=bool,
-    default=True,
+    default=False,
     help="Publish the action commands via a ros node to a forward position position controller. This will enable real robot parallel control.",
 )
 
-# TODO Check that if ros2 is not installed, then only one environment can be spawned
+parser.add_argument(
+    "--num_envs", type=int, default=1, help="Number of environments to spawn."
+)
+parser.add_argument(
+    "--log_data",
+    type=bool,
+    default=True,
+    help="Log the joint angles into the influxdb / grafana setup.",
+)
+
+
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
 args_cli = parser.parse_args()
+
+# Check if --pub2ros is True
+if args_cli.pub2ros:
+    if args_cli.num_envs != 1:
+        print(
+            "[INFO]: --pub2ros is enabled. Setting --num-envs to 1 as only one environment can be spawned when publishing to ROS."
+        )
+        args_cli.num_envs = 1
 
 # launch omniverse app
 app_launcher = AppLauncher(args_cli)
@@ -86,6 +125,8 @@ def main():
     """Main function."""
     # Check if the user wants to publish the actions to ROS2
     PUBLISH_2_ROS = args_cli.pub2ros
+    # Check if the user wants to log the joint data
+    LOG_DATA = args_cli.log_data
 
     # create environment configuration
     env_cfg = HawUr5EnvCfg()
@@ -106,10 +147,19 @@ def main():
         )
         ros_thread.start()
 
+    if LOG_DATA:
+        # Initialize datalogger
+        logger = InfluxDataLogger(
+            org="haw",
+            influx_url="http://localhost:8086",
+            run_info="Sending the zero joint target every update.",
+            action_scaling=env.action_scale,
+        )
+
     while simulation_app.is_running():
         with torch.inference_mode():
             # reset
-            if count % 200 == 0:
+            if count % 1000000 == 0:
                 count = 0
                 # env.reset()
                 print("-" * 80)
@@ -123,12 +173,12 @@ def main():
             actions = torch.tensor(
                 [
                     [
-                        -0.0,
-                        -0.0,
-                        -0.1,
-                        -0.0,
-                        -0.0,
-                        -0.0,
+                        0.0,
+                        0.0,
+                        0.0,  # -0.1,
+                        0.0,
+                        0.0,
+                        0.0,
                         gripper_action,
                     ]
                 ]
@@ -139,6 +189,21 @@ def main():
                 # Send ros actions to the real robot
                 ur5_controller.set_joint_delta(actions[0, :7].numpy())
                 real_joint_positions = ur5_controller.get_joint_positions()
+                bucket = "simrealjointdata"
+            elif LOG_DATA:
+                real_joint_positions = None
+                bucket = "simjointdata"
+
+            if LOG_DATA:
+                sim_joint_positions = env.get_sim_joint_positions()
+                if sim_joint_positions is not None:
+                    sim_joint_positions = sim_joint_positions.squeeze().tolist()
+                    store_joint_positions(
+                        logger=logger,
+                        sim=sim_joint_positions,
+                        real=real_joint_positions,
+                        bucket=bucket,
+                    )
 
             # Step the environment
             obs, rew, terminated, truncated, info = env.step(actions)
@@ -148,6 +213,7 @@ def main():
 
     # close the environment
     env.close()
+    logger.close()
 
     # Shutdown ROS 2 (if initialized)
     # rclpy.shutdown()

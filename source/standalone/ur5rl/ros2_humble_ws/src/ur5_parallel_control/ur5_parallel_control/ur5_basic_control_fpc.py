@@ -94,9 +94,8 @@ class Ur5JointController(Node):
         if self.current_joint_positions is None:
             self.get_logger().warn("No joint positions received yet")
             return None  # type: ignore
-        all_joint_positions = self.current_joint_positions + [
-            float(self.current_gripper_state)
-        ]
+        gripper_state = -1.0 if self.current_gripper_state == 0.0 else 1.0
+        all_joint_positions = self.current_joint_positions + [(gripper_state)]
         return all_joint_positions
 
     def receive_joint_delta(self, msg: Float64MultiArray):
