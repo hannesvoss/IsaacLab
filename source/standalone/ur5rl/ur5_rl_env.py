@@ -15,6 +15,7 @@ from omni.isaac.lab.sim import SimulationCfg
 from omni.isaac.lab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.utils.math import sample_uniform
+from numpy import float64
 
 
 @configclass
@@ -26,7 +27,7 @@ class HawUr5EnvCfg(DirectRLEnvCfg):
     num_states = 5
     reward_scale_example = 1.0
     decimation = 2
-    action_scale = 0.38
+    action_scale = 0.5
     v_cm = 25  # cm/s
     stepsize = v_cm * (1 / f_update) / 44  # Max angle delta per update
 
@@ -100,7 +101,7 @@ class HawUr5Env(DirectRLEnv):
         self.live_joint_pos: torch.Tensor = self.robot.data.joint_pos
         self.live_joint_vel: torch.Tensor = self.robot.data.joint_vel
 
-        self.jointpos_script_GT: torch.Tensor = self.live_joint_pos[:, :]
+        self.jointpos_script_GT: torch.Tensor = self.live_joint_pos[:, :].clone()
 
         self.action_dim = len(self._arm_dof_idx) + len(self._gripper_dof_idx)
 
@@ -160,14 +161,41 @@ class HawUr5Env(DirectRLEnv):
         )  # Shape: (num_envs, 6)
         return gripper_joint_targets
 
+    def _check_drift(self):
+        """
+        Check if the joint positions in the script ground truth deviate too much from actual joints in the simulation.
+        If the deviation is too high, update the GT.
+        """
+        # Get current joint positions from the scripts GT
+        current_main_joint_positions = self.jointpos_script_GT[
+            :, : len(self._arm_dof_idx)
+        ]
+        # Get current joint positions from the simulation
+        current_main_joint_positions_sim = self.live_joint_pos[
+            :, : len(self._arm_dof_idx)
+        ]
+        # Check if the sim joints deviate too much from the script ground truth joints
+        if not torch.allclose(
+            current_main_joint_positions, current_main_joint_positions_sim, atol=1e-3
+        ):
+            print(
+                f"[INFO]: Joint position GT in script deviates too much from the simulation\nUpdate GT"
+            )
+            self.jointpos_script_GT = current_main_joint_positions_sim.clone()
+
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         # Get actions
         # Separate the main joint actions (first 6) and the gripper action (last one)
         main_joint_deltas = actions[:, :6]
         gripper_action = actions[:, 6]  # Shape: (num_envs)
 
-        # Get current joint positions in the correct shape
-        current_main_joint_positions = self.live_joint_pos[:, : len(self._arm_dof_idx)]
+        # Check if the sim joints deviate too much from the script ground truth joints
+        self._check_drift()
+
+        # Get current joint positions from the scripts GT
+        current_main_joint_positions = self.jointpos_script_GT[
+            :, : len(self._arm_dof_idx)
+        ]  # self.live_joint_pos[:, : len(self._arm_dof_idx)]
 
         # Apply actions
         # Scale the main joint actions
@@ -180,13 +208,13 @@ class HawUr5Env(DirectRLEnv):
 
         gripper_joint_targets = self._gripper_action_to_joint_targets(gripper_action)
 
-        # Concatenate the main joint actions with the gripper joint positions
-        full_joint_targets = torch.cat(
+        # Concatenate the main joint actions with the gripper joint positions and set it as new GT
+        self.jointpos_script_GT = torch.cat(
             (main_joint_targets, gripper_joint_targets), dim=1
         )
 
         # Assign calculated joint target to self.actions
-        self.actions = full_joint_targets
+        self.actions = self.jointpos_script_GT
 
     def _apply_action(self) -> None:
         self.robot.set_joint_position_target(
@@ -236,7 +264,7 @@ class HawUr5Env(DirectRLEnv):
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
     def set_joint_angles_absolute(
-        self, joint_angles: list[float]
+        self, joint_angles: list[float64]
     ) -> bool:  # TODO not yet working
         try:
             # Set arm joint angles from list
