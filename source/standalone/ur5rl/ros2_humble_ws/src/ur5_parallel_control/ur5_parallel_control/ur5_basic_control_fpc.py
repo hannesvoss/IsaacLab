@@ -12,7 +12,7 @@ from ur_msgs.srv import SetIO
 
 
 class Ur5JointController(Node):
-    def __init__(self, v_cm=20, f_update=150):  # Max v = 35 cm/s
+    def __init__(self, v_cm=35, f_update=120):  # Max v = 35 cm/s
         super().__init__("position_control_node")
         # self.lock = threading.Lock()
         self.d_t = 1 / f_update  # Time between updates
@@ -209,7 +209,7 @@ class Ur5JointController(Node):
             self.get_logger().error(f"Service call failed: {e}")
 
     def enforce_joint_limits(self, target_angles: list[float64]):
-        """Safty layer to avoid damaging the robot by exceeding joint limits."""
+        """Safety layer to avoid damaging the robot by exceeding joint limits."""
         # TODO  Implement joint limits
         new_target_angles = target_angles
         return new_target_angles
