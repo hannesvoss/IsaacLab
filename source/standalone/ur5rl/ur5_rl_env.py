@@ -35,6 +35,7 @@ class HawUr5EnvCfg(DirectRLEnvCfg):
     action_scale = 1.0
     v_cm = 35  # cm/s
     stepsize = v_cm * (1 / f_update) / 44  # Max angle delta per update
+    pp_setup = True
 
     # simulation
     sim: SimulationCfg = SimulationCfg(dt=1 / 120, render_interval=decimation)
@@ -132,26 +133,28 @@ class HawUr5Env(DirectRLEnv):
 
         # add ground plane
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg())
-        # add container table
-        spawn_from_usd(
-            prim_path="/World/envs/env_.*/container",
-            cfg=self.cfg.container_cfg,
-            translation=(0.8, 0.0, 0.0),
-        )
 
-        # Spawn cube with individual randomization for each environment
-        for env_idx in range(self.scene.num_envs):
-            env_prim_path = f"/World/envs/env_{env_idx}/cube"
-            random_translation = (
-                0.5 + np.random.uniform(-0.1, 0.5),
-                0.0 + np.random.uniform(-0.2, 0.2),
-                1.0,
-            )
+        # Check if the pick and place setup is enabled
+        if self.cfg.pp_setup:
+            # add container table
             spawn_from_usd(
-                prim_path=env_prim_path,
-                cfg=self.cfg.cube_cfg,
-                translation=random_translation,
+                prim_path="/World/envs/env_.*/container",
+                cfg=self.cfg.container_cfg,
+                translation=(0.8, 0.0, 0.0),
             )
+            # Spawn cube with individual randomization for each environment
+            for env_idx in range(self.scene.num_envs):
+                env_prim_path = f"/World/envs/env_{env_idx}/cube"
+                random_translation = (
+                    0.5 + np.random.uniform(-0.1, 0.5),
+                    0.0 + np.random.uniform(-0.2, 0.2),
+                    1.0,
+                )
+                spawn_from_usd(
+                    prim_path=env_prim_path,
+                    cfg=self.cfg.cube_cfg,
+                    translation=random_translation,
+                )
 
         # clone, filter, and replicate
         self.scene.clone_environments(copy_from_source=False)

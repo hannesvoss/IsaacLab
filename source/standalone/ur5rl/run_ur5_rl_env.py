@@ -68,18 +68,25 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--pub2ros",
     type=bool,
-    default=True,
+    default=False,
     help="Publish the action commands via a ros node to a forward position position controller. This will enable real robot parallel control.",
 )
 
 parser.add_argument(
-    "--num_envs", type=int, default=1, help="Number of environments to spawn."
+    "--num_envs", type=int, default=16, help="Number of environments to spawn."
 )
 parser.add_argument(
     "--log_data",
     type=bool,
-    default=True,
+    default=False,
     help="Log the joint angles into the influxdb / grafana setup.",
+)
+
+parser.add_argument(
+    "--pp_setup",
+    type=bool,
+    default="False",
+    help="Spawns a container table and a cube for pick and place tasks.",
 )
 
 
@@ -136,6 +143,7 @@ def main():
     # create environment configuration
     env_cfg = HawUr5EnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
+    env_cfg.pp_setup = args_cli.pp_setup
     # setup RL environment
     env = HawUr5Env(cfg=env_cfg)
 
@@ -161,7 +169,7 @@ def main():
             action_scaling=env.action_scale,
         )
 
-    elbow_lift = -0.1
+    elbow_lift = 0.5
 
     while simulation_app.is_running():
         with torch.inference_mode():
@@ -181,7 +189,7 @@ def main():
                 [
                     [
                         0.0,
-                        0.0,
+                        0.1,
                         elbow_lift,
                         0.0,
                         0.0,
