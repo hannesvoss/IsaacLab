@@ -12,9 +12,14 @@ from omni.isaac.lab.assets import Articulation, ArticulationCfg
 from omni.isaac.lab.envs import DirectRLEnv, DirectRLEnvCfg
 from omni.isaac.lab.scene import InteractiveSceneCfg
 from omni.isaac.lab.sim import SimulationCfg
-from omni.isaac.lab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
+from omni.isaac.lab.sim.spawners.from_files import (
+    GroundPlaneCfg,
+    spawn_ground_plane,
+    spawn_from_usd,
+)
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.utils.math import sample_uniform
+import numpy as np
 from numpy import float64
 
 
@@ -33,6 +38,17 @@ class HawUr5EnvCfg(DirectRLEnvCfg):
 
     # simulation
     sim: SimulationCfg = SimulationCfg(dt=1 / 120, render_interval=decimation)
+
+    # Objects
+
+    # Static Object Container Table
+    container_cfg = sim_utils.UsdFileCfg(
+        usd_path="omniverse://localhost/MyAssets/Objects/Container.usd",
+    )
+    # Rigid Object Cube
+    cube_cfg = sim_utils.UsdFileCfg(
+        usd_path="omniverse://localhost/MyAssets/Objects/Cube.usd",
+    )
 
     # Gripper parameters
 
@@ -76,7 +92,7 @@ class HawUr5EnvCfg(DirectRLEnvCfg):
 
     # scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(
-        env_spacing=2.0, replicate_physics=True
+        env_spacing=2.5, replicate_physics=True
     )
 
     # reset conditions
@@ -116,6 +132,26 @@ class HawUr5Env(DirectRLEnv):
 
         # add ground plane
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg())
+        # add container table
+        spawn_from_usd(
+            prim_path="/World/envs/env_.*/container",
+            cfg=self.cfg.container_cfg,
+            translation=(0.8, 0.0, 0.0),
+        )
+
+        # Spawn cube with individual randomization for each environment
+        for env_idx in range(self.scene.num_envs):
+            env_prim_path = f"/World/envs/env_{env_idx}/cube"
+            random_translation = (
+                0.5 + np.random.uniform(-0.1, 0.5),
+                0.0 + np.random.uniform(-0.2, 0.2),
+                1.0,
+            )
+            spawn_from_usd(
+                prim_path=env_prim_path,
+                cfg=self.cfg.cube_cfg,
+                translation=random_translation,
+            )
 
         # clone, filter, and replicate
         self.scene.clone_environments(copy_from_source=False)
@@ -251,7 +287,8 @@ class HawUr5Env(DirectRLEnv):
         super()._reset_idx(env_ids)  # type: ignore
 
         joint_pos = self.robot.data.default_joint_pos[env_ids]
-        # TODO Add random noise to joint positions for domain randomization
+        # Domain randomization (TODO make sure states are safe)
+        joint_pos += torch.rand_like(joint_pos) * 0.1
 
         joint_vel = self.robot.data.default_joint_vel[env_ids]
 
@@ -263,9 +300,7 @@ class HawUr5Env(DirectRLEnv):
         self.robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
-    def set_joint_angles_absolute(
-        self, joint_angles: list[float64]
-    ) -> bool:  # TODO not yet working
+    def set_joint_angles_absolute(self, joint_angles: list[float64]) -> bool:
         try:
             # Set arm joint angles from list
             T_arm_angles = torch.tensor(joint_angles[:6], device=self.device)
