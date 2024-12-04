@@ -22,13 +22,13 @@ from numpy import float64
 class HawUr5EnvCfg(DirectRLEnvCfg):
     # env
     num_actions = 7
-    f_update = 60
+    f_update = 120
     num_observations = 7
     num_states = 5
     reward_scale_example = 1.0
     decimation = 2
-    action_scale = 0.5
-    v_cm = 25  # cm/s
+    action_scale = 1.0
+    v_cm = 35  # cm/s
     stepsize = v_cm * (1 / f_update) / 44  # Max angle delta per update
 
     # simulation
