@@ -157,11 +157,11 @@ def main():
         logger = InfluxDataLogger(
             org="haw",
             influx_url="http://localhost:8086",
-            run_info="Using ground truth in script and updating it on strong deviations. Sending elbow lift command. FAST",
+            run_info="Using ground truth in script and updating it on strong deviations. Sending elbow lift command. Same update parameters for both sim and real.",
             action_scaling=env.action_scale,
         )
 
-    elbow_lift = -0.2
+    elbow_lift = -0.1
 
     while simulation_app.is_running():
         with torch.inference_mode():
@@ -182,7 +182,7 @@ def main():
                     [
                         0.0,
                         0.0,
-                        -elbow_lift,
+                        elbow_lift,
                         0.0,
                         0.0,
                         0.0,
