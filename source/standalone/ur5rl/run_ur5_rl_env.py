@@ -68,7 +68,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--pub2ros",
     type=bool,
-    default=False,
+    default=True,
     help="Publish the action commands via a ros node to a forward position position controller. This will enable real robot parallel control.",
 )
 
@@ -89,12 +89,17 @@ AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
 # Check if --pub2ros is True
-if args_cli.pub2ros:
-    if args_cli.num_envs != 1:
-        print(
-            "[INFO]: --pub2ros is enabled. Setting --num-envs to 1 as only one environment can be spawned when publishing to ROS."
-        )
-        args_cli.num_envs = 1
+if args_cli.pub2ros and args_cli.num_envs != 1:
+    print(
+        "[INFO]: --pub2ros is enabled. Setting --num-envs to 1 as only one environment can be spawned when publishing to ROS."
+    )
+    args_cli.num_envs = 1
+elif args_cli.log_data and not args_cli.num_envs == 1:
+    print(
+        "[INFO]: --log_data is enabled. Setting --num-envs to 1 as only one environment can be spawned when logging data."
+    )
+    args_cli.num_envs = 1
+
 
 # launch omniverse app
 app_launcher = AppLauncher(args_cli)
@@ -152,9 +157,11 @@ def main():
         logger = InfluxDataLogger(
             org="haw",
             influx_url="http://localhost:8086",
-            run_info="Sending the zero joint target every update.",
+            run_info="Using ground truth in script and updating it on strong deviations. Sending elbow lift command. FAST",
             action_scaling=env.action_scale,
         )
+
+    elbow_lift = -0.2
 
     while simulation_app.is_running():
         with torch.inference_mode():
@@ -175,7 +182,7 @@ def main():
                     [
                         0.0,
                         0.0,
-                        0.0,  # -0.1,
+                        -elbow_lift,
                         0.0,
                         0.0,
                         0.0,
