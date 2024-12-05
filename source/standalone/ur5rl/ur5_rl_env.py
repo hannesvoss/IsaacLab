@@ -18,7 +18,7 @@ from omni.isaac.lab.sim.spawners.from_files import (
     spawn_from_usd,
 )
 from omni.isaac.lab.utils import configclass
-from omni.isaac.lab.utils.math import sample_uniform
+from omni.isaac.lab.sensors import CameraCfg, Camera
 import numpy as np
 from numpy import float64
 
@@ -49,6 +49,23 @@ class HawUr5EnvCfg(DirectRLEnvCfg):
     # Rigid Object Cube
     cube_cfg = sim_utils.UsdFileCfg(
         usd_path="omniverse://localhost/MyAssets/Objects/Cube.usd",
+    )
+    # Camera
+    camera_cfg = CameraCfg(
+        prim_path="/World/envs/env_.*/ur5/onrobot_rg6_model/onrobot_rg6_base_link/camera",  # onrobot_rg6_model/onrobot_rg6_base_link/camera",
+        update_period=0,
+        height=480,
+        width=640,
+        data_types=["rgb", "distance_to_image_plane"],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=24.0,
+            focus_distance=400.0,
+            horizontal_aperture=20.955,
+            clipping_range=(0.1, 1.0e5),
+        ),
+        offset=CameraCfg.OffsetCfg(
+            pos=(0.05, 0.0, 0.015), rot=(0.71, 0.0, 0.0, 0.71), convention="ros"
+        ),
     )
 
     # Gripper parameters
@@ -162,6 +179,9 @@ class HawUr5Env(DirectRLEnv):
 
         # add articultion to scene
         self.scene.articulations["ur5"] = self.robot
+        # return the scene information
+        self.camera = Camera(cfg=self.cfg.camera_cfg)
+        self.scene.sensors["camera"] = self.camera
 
         # add lights
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
