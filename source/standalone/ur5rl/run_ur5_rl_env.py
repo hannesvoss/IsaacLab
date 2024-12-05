@@ -9,6 +9,65 @@ import argparse
 
 from omni.isaac.lab.app import AppLauncher
 
+
+# add argparse arguments
+parser = argparse.ArgumentParser(
+    description="Tutorial on running the cartpole RL environment."
+)
+
+parser.add_argument(
+    "--pub2ros",
+    type=bool,
+    default=False,
+    help="Publish the action commands via a ros node to a forward position position controller. This will enable real robot parallel control.",
+)
+
+parser.add_argument(
+    "--num_envs", type=int, default=2, help="Number of environments to spawn."
+)
+parser.add_argument(
+    "--log_data",
+    type=bool,
+    default=False,
+    help="Log the joint angles into the influxdb / grafana setup.",
+)
+
+parser.add_argument(
+    "--pp_setup",
+    type=bool,
+    default="False",
+    help="Spawns a container table and a cube for pick and place tasks.",
+)
+
+
+# append AppLauncher cli args
+AppLauncher.add_app_launcher_args(parser)
+# parse the arguments
+args_cli = parser.parse_args()
+
+# Check if --pub2ros is True
+if args_cli.pub2ros and args_cli.num_envs != 1:
+    print(
+        "[INFO]: --pub2ros is enabled. Setting --num-envs to 1 as only one environment can be spawned when publishing to ROS."
+    )
+    args_cli.num_envs = 1
+elif args_cli.log_data and not args_cli.num_envs == 1:
+    print(
+        "[INFO]: --log_data is enabled. Setting --num-envs to 1 as only one environment can be spawned when logging data."
+    )
+    args_cli.num_envs = 1
+
+
+# launch omniverse app
+app_launcher = AppLauncher(args_cli)
+simulation_app = app_launcher.app
+
+"""Rest everything follows."""
+
+import torch
+from ur5_rl_env import HawUr5EnvCfg, HawUr5Env
+
+
 # ----------------- ROS -----------------
 import rclpy
 
@@ -60,69 +119,6 @@ def store_joint_positions(
 # ---------------------------------------
 
 
-# add argparse arguments
-parser = argparse.ArgumentParser(
-    description="Tutorial on running the cartpole RL environment."
-)
-
-parser.add_argument(
-    "--pub2ros",
-    type=bool,
-    default=False,
-    help="Publish the action commands via a ros node to a forward position position controller. This will enable real robot parallel control.",
-)
-
-parser.add_argument(
-    "--num_envs", type=int, default=16, help="Number of environments to spawn."
-)
-parser.add_argument(
-    "--log_data",
-    type=bool,
-    default=False,
-    help="Log the joint angles into the influxdb / grafana setup.",
-)
-
-parser.add_argument(
-    "--pp_setup",
-    type=bool,
-    default="False",
-    help="Spawns a container table and a cube for pick and place tasks.",
-)
-
-
-# append AppLauncher cli args
-AppLauncher.add_app_launcher_args(parser)
-# parse the arguments
-args_cli = parser.parse_args()
-
-# Check if --pub2ros is True
-if args_cli.pub2ros and args_cli.num_envs != 1:
-    print(
-        "[INFO]: --pub2ros is enabled. Setting --num-envs to 1 as only one environment can be spawned when publishing to ROS."
-    )
-    args_cli.num_envs = 1
-elif args_cli.log_data and not args_cli.num_envs == 1:
-    print(
-        "[INFO]: --log_data is enabled. Setting --num-envs to 1 as only one environment can be spawned when logging data."
-    )
-    args_cli.num_envs = 1
-
-
-# launch omniverse app
-app_launcher = AppLauncher(args_cli)
-simulation_app = app_launcher.app
-
-"""Rest everything follows."""
-
-# from omni.isaac.core.utils.extensions import enable_extension
-
-# Enable the ROS 2 Bridge
-# enable_extension("omni.isaac.ros2_bridge")
-
-import torch
-from ur5_rl_env import HawUr5EnvCfg, HawUr5Env
-
-
 def sync_sim_joints_with_real_robot(env: HawUr5Env, ur5_controller: Ur5JointController):
     """Sync the simulated robot joints with the real robot."""
     # Sync sim joints with real robot
@@ -135,6 +131,8 @@ def sync_sim_joints_with_real_robot(env: HawUr5Env, ur5_controller: Ur5JointCont
 
 def main():
     """Main function."""
+
+    ### Get run configurations
     # Check if the user wants to publish the actions to ROS2
     PUBLISH_2_ROS = args_cli.pub2ros
     # Check if the user wants to log the joint data
@@ -146,9 +144,7 @@ def main():
     env_cfg.pp_setup = args_cli.pp_setup
     # setup RL environment
     env = HawUr5Env(cfg=env_cfg)
-
-    # simulate physics
-    count = 0
+    env.camera.reset()
 
     if PUBLISH_2_ROS:
         # ROS 2 initialization
@@ -170,6 +166,7 @@ def main():
         )
 
     elbow_lift = 0.5
+    count = 0
 
     while simulation_app.is_running():
         with torch.inference_mode():
@@ -182,14 +179,14 @@ def main():
                 if PUBLISH_2_ROS:
                     sync_sim_joints_with_real_robot(env, ur5_controller)
 
-            # Sample test action for the gripper
+            # Get test action for the gripper
             gripper_action = -1 + count / 100 % 2
             # create a tensor for joint position targets with 7 values (6 for joints, 1 for gripper)
             actions = torch.tensor(
                 [
                     [
                         0.0,
-                        0.1,
+                        0.0,
                         elbow_lift,
                         0.0,
                         0.0,
@@ -200,15 +197,18 @@ def main():
                 * env_cfg.scene.num_envs
             )
 
+            # Control real robot and setup logging
             if PUBLISH_2_ROS:
                 # Send ros actions to the real robot
                 ur5_controller.set_joint_delta(actions[0, :7].numpy())
                 real_joint_positions = ur5_controller.get_joint_positions()
                 bucket = "simrealjointdata"
+            # If not publishing to ROS, set real joint positions to None and switch to sim data bucket
             elif LOG_DATA:
                 real_joint_positions = None
                 bucket = "simjointdata"
 
+            # Log the joint positions
             if LOG_DATA:
                 sim_joint_positions = env.get_sim_joint_positions()
                 if sim_joint_positions is not None:
@@ -223,12 +223,27 @@ def main():
             # Step the environment
             obs, rew, terminated, truncated, info = env.step(actions)
 
+            # # Camera logging DEBUG
+            # # print information from the sensors
+            # print("-------------------------------")
+            # print(env.scene["camera"])
+            # print(
+            #     "Received shape of rgb   image: ",
+            #     env.scene["camera"].data.output["rgb"].shape,
+            # )
+            # print(
+            #     "Received shape of depth image: ",
+            #     env.scene["camera"].data.output["distance_to_image_plane"].shape,
+            # )
+            # print("-------------------------------")
+
             # update counter
             count += 1
 
     # close the environment
     env.close()
-    logger.close()
+    if LOG_DATA:
+        logger.close()
 
     # Shutdown ROS 2 (if initialized)
     # rclpy.shutdown()
