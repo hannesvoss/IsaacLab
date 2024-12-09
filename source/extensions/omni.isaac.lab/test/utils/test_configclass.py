@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+from __future__ import annotations
+
 # NOTE: While we don't actually use the simulation app in this test, we still need to launch it
 #       because warp is only available in the context of a running simulation
 """Launch Isaac Sim Simulator first."""
@@ -21,7 +23,7 @@ import unittest
 from collections.abc import Callable
 from dataclasses import MISSING, asdict, field
 from functools import wraps
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from omni.isaac.lab.utils.configclass import configclass
 from omni.isaac.lab.utils.dict import class_to_dict, dict_to_md5_hash, update_class_from_dict
@@ -84,6 +86,11 @@ def double(x):
 
 
 @configclass
+class ModifierCfg:
+    params: dict[str, Any] = {"A": 1, "B": 2}
+
+
+@configclass
 class ViewerCfg:
     eye: list = [7.5, 7.5, 7.5]  # field missing on purpose
     lookat: list = field(default_factory=lambda: [0.0, 0.0, 0.0])
@@ -111,6 +118,7 @@ class BasicDemoCfg:
     device_id: int = 0
     env: EnvCfg = EnvCfg()
     robot_default_state: RobotDefaultStateCfg = RobotDefaultStateCfg()
+    list_config = [ModifierCfg(), ModifierCfg(params={"A": 3, "B": 4})]
 
 
 @configclass
@@ -292,6 +300,28 @@ class FunctionImplementedDemoCfg:
         self.a = a
 
 
+@configclass
+class ClassFunctionImplementedDemoCfg:
+    """Dummy configuration class with function members defined in the class."""
+
+    a: int = 5
+
+    def instance_method(self):
+        print("Value of a: ", self.a)
+
+    @classmethod
+    def class_method(cls, value: int) -> ClassFunctionImplementedDemoCfg:
+        return cls(a=value)
+
+    @property
+    def a_proxy(self) -> int:
+        return self.a
+
+    @a_proxy.setter
+    def a_proxy(self, value: int):
+        self.a = value
+
+
 """
 Dummy configuration: Nested dictionaries
 """
@@ -303,6 +333,45 @@ class NestedDictAndListCfg:
 
     dict_1: dict = {"dict_2": {"func": dummy_function1}}
     list_1: list[EnvCfg] = [EnvCfg(), EnvCfg()]
+
+
+"""
+Dummy configuration: Missing attributes
+"""
+
+
+@configclass
+class MissingParentDemoCfg:
+    """Dummy parent configuration with missing fields."""
+
+    a: int = MISSING
+
+    @configclass
+    class InsideClassCfg:
+        """Inner dummy configuration."""
+
+        @configclass
+        class InsideInsideClassCfg:
+            """Inner inner dummy configuration."""
+
+            a: str = MISSING
+
+        inside: str = MISSING
+        inside_dict = {"a": MISSING}
+        inside_nested_dict = {"a": {"b": "hello", "c": MISSING, "d": InsideInsideClassCfg()}}
+        inside_tuple = (10, MISSING, 20)
+        inside_list = [MISSING, MISSING, 2]
+
+    b: InsideClassCfg = InsideClassCfg()
+
+
+@configclass
+class MissingChildDemoCfg(MissingParentDemoCfg):
+    """Dummy child configuration with missing fields."""
+
+    c: Callable = MISSING
+    d: int | None = None
+    e: dict = {}
 
 
 """
@@ -318,6 +387,7 @@ basic_demo_cfg_correct = {
         "dof_vel": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     },
     "device_id": 0,
+    "list_config": [{"params": {"A": 1, "B": 2}}, {"params": {"A": 3, "B": 4}}],
 }
 
 basic_demo_cfg_change_correct = {
@@ -329,6 +399,7 @@ basic_demo_cfg_change_correct = {
         "dof_vel": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     },
     "device_id": 0,
+    "list_config": [{"params": {"A": 1, "B": 2}}, {"params": {"A": 3, "B": 4}}],
 }
 
 basic_demo_cfg_change_with_none_correct = {
@@ -340,6 +411,19 @@ basic_demo_cfg_change_with_none_correct = {
         "dof_vel": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     },
     "device_id": 0,
+    "list_config": [{"params": {"A": 1, "B": 2}}, {"params": {"A": 3, "B": 4}}],
+}
+
+basic_demo_cfg_change_with_tuple_correct = {
+    "env": {"num_envs": 56, "episode_length": 2000, "viewer": {"eye": [7.5, 7.5, 7.5], "lookat": [0.0, 0.0, 0.0]}},
+    "robot_default_state": {
+        "pos": (0.0, 0.0, 0.0),
+        "rot": (1.0, 0.0, 0.0, 0.0),
+        "dof_pos": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        "dof_vel": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+    },
+    "device_id": 0,
+    "list_config": [{"params": {"A": -1, "B": -2}}, {"params": {"A": -3, "B": -4}}],
 }
 
 basic_demo_cfg_nested_dict_and_list = {
@@ -381,6 +465,22 @@ functions_demo_cfg_for_updating = {
 }
 
 """
+Test solutions: Missing attributes
+"""
+
+validity_expected_fields = [
+    "a",
+    "b.inside",
+    "b.inside_dict.a",
+    "b.inside_nested_dict.a.c",
+    "b.inside_nested_dict.a.d.a",
+    "b.inside_tuple[1]",
+    "b.inside_list[0]",
+    "b.inside_list[1]",
+    "c",
+]
+
+"""
 Test fixtures.
 """
 
@@ -417,7 +517,7 @@ class TestConfigClass(unittest.TestCase):
 
     def test_dict_conversion_order(self):
         """Tests that order is conserved when converting to dictionary."""
-        true_outer_order = ["device_id", "env", "robot_default_state"]
+        true_outer_order = ["device_id", "env", "robot_default_state", "list_config"]
         true_env_order = ["num_envs", "episode_length", "viewer"]
         # create config
         cfg = BasicDemoCfg()
@@ -435,7 +535,7 @@ class TestConfigClass(unittest.TestCase):
             self.assertEqual(label, parsed_value)
         # check ordering when copied
         cfg_dict_copied = copy.deepcopy(cfg_dict)
-        cfg_dict_copied.pop("robot_default_state")
+        cfg_dict_copied.pop("list_config")
         # check ordering
         for label, parsed_value in zip(true_outer_order, cfg_dict_copied.keys()):
             self.assertEqual(label, parsed_value)
@@ -471,6 +571,13 @@ class TestConfigClass(unittest.TestCase):
         cfg_dict = {"env": {"num_envs": 22, "viewer": None}}
         update_class_from_dict(cfg, cfg_dict)
         self.assertDictEqual(asdict(cfg), basic_demo_cfg_change_with_none_correct)
+
+    def test_config_update_dict_tuple(self):
+        """Test updating configclass using a dictionary that modifies a tuple."""
+        cfg = BasicDemoCfg()
+        cfg_dict = {"list_config": [{"params": {"A": -1, "B": -2}}, {"params": {"A": -3, "B": -4}}]}
+        update_class_from_dict(cfg, cfg_dict)
+        self.assertDictEqual(asdict(cfg), basic_demo_cfg_change_with_tuple_correct)
 
     def test_config_update_nested_dict(self):
         """Test updating configclass with sub-dictionaries."""
@@ -618,11 +725,49 @@ class TestConfigClass(unittest.TestCase):
         self.assertEqual(cfg.func_in_dict["func"](), 1)
 
     def test_function_impl_config(self):
+        """Tests having function defined in the class instance."""
         cfg = FunctionImplementedDemoCfg()
         # change value
         self.assertEqual(cfg.a, 5)
         cfg.set_a(10)
         self.assertEqual(cfg.a, 10)
+
+    def test_class_function_impl_config(self):
+        """Tests having class function defined in the class instance."""
+        cfg = ClassFunctionImplementedDemoCfg()
+
+        # check that the annotations are correct
+        self.assertDictEqual(cfg.__annotations__, {"a": "int"})
+
+        # check all methods are callable
+        cfg.instance_method()
+        new_cfg1 = cfg.class_method(20)
+        # check value is correct
+        self.assertEqual(new_cfg1.a, 20)
+
+        # create the same config instance using class method
+        new_cfg2 = ClassFunctionImplementedDemoCfg.class_method(20)
+        # check value is correct
+        self.assertEqual(new_cfg2.a, 20)
+
+    def test_class_property_impl_config(self):
+        """Tests having class property defined in the class instance."""
+        cfg = ClassFunctionImplementedDemoCfg()
+
+        # check that the annotations are correct
+        self.assertDictEqual(cfg.__annotations__, {"a": "int"})
+
+        # check all methods are callable
+        cfg.instance_method()
+
+        # check value is correct
+        self.assertEqual(cfg.a, 5)
+        self.assertEqual(cfg.a_proxy, 5)
+
+        # set through property
+        cfg.a_proxy = 10
+        self.assertEqual(cfg.a, 10)
+        self.assertEqual(cfg.a_proxy, 10)
 
     def test_dict_conversion_functions_config(self):
         """Tests conversion of config with functions into dictionary."""
@@ -825,6 +970,22 @@ class TestConfigClass(unittest.TestCase):
         md5_hash_2 = dict_to_md5_hash(cfg.to_dict())
 
         self.assertEqual(md5_hash_1, md5_hash_2)
+
+    def test_validity(self):
+        """Check that invalid configurations raise errors."""
+
+        cfg = MissingChildDemoCfg()
+
+        with self.assertRaises(TypeError) as context:
+            cfg.validate()
+
+        # check that the expected missing fields are in the error message
+        error_message = str(context.exception)
+        for elem in validity_expected_fields:
+            self.assertIn(elem, error_message)
+
+        # check that no more than the expected missing fields are in the error message
+        self.assertEqual(len(error_message.split("\n")) - 2, len(validity_expected_fields))
 
 
 if __name__ == "__main__":

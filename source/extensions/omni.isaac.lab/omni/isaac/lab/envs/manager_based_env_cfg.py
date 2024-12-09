@@ -13,6 +13,7 @@ from dataclasses import MISSING
 
 import omni.isaac.lab.envs.mdp as mdp
 from omni.isaac.lab.managers import EventTermCfg as EventTerm
+from omni.isaac.lab.managers import RecorderManagerBaseCfg as DefaultEmptyRecorderManagerCfg
 from omni.isaac.lab.scene import InteractiveSceneCfg
 from omni.isaac.lab.sim import SimulationCfg
 from omni.isaac.lab.utils import configclass
@@ -56,6 +57,14 @@ class ManagerBasedEnvCfg:
     """
 
     # general settings
+    seed: int | None = None
+    """The seed for the random number generator. Defaults to None, in which case the seed is not set.
+
+    Note:
+      The seed is set at the beginning of the environment initialization. This ensures that the environment
+      creation is deterministic and behaves similarly across different runs.
+    """
+
     decimation: int = MISSING
     """Number of control action updates @ sim dt per policy dt.
 
@@ -68,6 +77,12 @@ class ManagerBasedEnvCfg:
     """Scene settings.
 
     Please refer to the :class:`omni.isaac.lab.scene.InteractiveSceneCfg` class for more details.
+    """
+
+    recorders: object = DefaultEmptyRecorderManagerCfg()
+    """Recorder settings. Defaults to recording nothing.
+
+    Please refer to the :class:`omni.isaac.lab.managers.RecorderManager` class for more details.
     """
 
     observations: object = MISSING
@@ -86,4 +101,16 @@ class ManagerBasedEnvCfg:
     """Event settings. Defaults to the basic configuration that resets the scene to its default state.
 
     Please refer to the :class:`omni.isaac.lab.managers.EventManager` class for more details.
+    """
+
+    rerender_on_reset: bool = False
+    """Whether a render step is performed again after at least one environment has been reset.
+    Defaults to False, which means no render step will be performed after reset.
+
+    * When this is False, data collected from sensors after performing reset will be stale and will not reflect the
+      latest states in simulation caused by the reset.
+    * When this is True, an extra render step will be performed to update the sensor data
+      to reflect the latest states from the reset. This comes at a cost of performance as an additional render
+      step will be performed after each time an environment is reset.
+
     """
