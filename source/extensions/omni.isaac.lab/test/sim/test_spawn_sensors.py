@@ -69,7 +69,7 @@ class TestSpawningSensors(unittest.TestCase):
     def test_spawn_fisheye_camera(self):
         """Test spawning a fisheye camera."""
         cfg = sim_utils.FisheyeCameraCfg(
-            projection_type="fisheye_equidistant",
+            projection_type="fisheyePolynomial",
             focal_length=5.0,
             f_stop=10.0,
             clipping_range=(0.1, 1000.0),
@@ -99,7 +99,14 @@ class TestSpawningSensors(unittest.TestCase):
             custom_attr: The custom attributes for sensor.
         """
         # delete custom attributes in the config that are not USD parameters
-        non_usd_cfg_param_names = ["func", "copy_from_source", "lock_camera", "visible", "semantic_tags"]
+        non_usd_cfg_param_names = [
+            "func",
+            "copy_from_source",
+            "lock_camera",
+            "visible",
+            "semantic_tags",
+            "from_intrinsic_matrix",
+        ]
         # get prim
         prim = prim_utils.get_prim_at_path(prim_path)
         for attr_name, attr_value in cfg.__dict__.items():
